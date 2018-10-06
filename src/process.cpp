@@ -96,15 +96,10 @@ uint32_t Process::ParseMaps()
     return m_regions.size();
 }
 
-Region* Process::GetRegion(const std::string& szRegionName, const Region* pAfter)
+Region* Process::GetRegion(const std::string& szRegionName)
 {
-    bool bFoundAfter = (pAfter == nullptr);
     for (Region& region : m_regions) {
-        if (!bFoundAfter) {
-            if (pAfter == &region) {
-                bFoundAfter = true;
-            }
-        } else if (!szRegionName.compare(region.GetFileName())) {
+        if (!szRegionName.compare(region.GetFileName())) {
                 return &region;
         }
     }
