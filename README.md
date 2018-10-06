@@ -29,6 +29,6 @@ int main()
     }
     
     auto someInt = process.Read<int>(someAddress);
-    std::cout << someInt;
+    std::cout << someInt << '\n';
 }
 ```
