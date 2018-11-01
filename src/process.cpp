@@ -49,6 +49,11 @@ uint32_t Process::Attach(const char* szProcessName)
     return m_nProcessID;
 }
 
+uint32_t Process::GetPID()
+{
+    return m_nProcessID;
+}
+
 uint32_t Process::Attach(const std::string& szProcessName)
 {
     return Attach(szProcessName.c_str());

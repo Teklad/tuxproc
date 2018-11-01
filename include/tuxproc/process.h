@@ -30,6 +30,12 @@ class Process {
         uint32_t Attach(const char* szProcessName);
         
         /**
+         * @brief Gets the current process ID
+         *
+         * @return PID
+         */
+        uint32_t GetPID();
+        /**
          * @brief Checks to see if the currently "attached" process is running.
          *
          * @return true if it is, otherwise false
