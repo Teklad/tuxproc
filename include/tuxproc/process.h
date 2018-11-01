@@ -192,8 +192,10 @@ inline T Process::Read(uintptr_t nAddress, size_t nReadSize)
 template<>
 inline std::string Process::Read(uintptr_t nAddress, size_t nReadSize)
 {
-    std::string pResult(nReadSize, 0);
-    ReadMemory(nAddress, &pResult[0], nReadSize);
+    char* buffer = new char[nReadSize + 1];
+    ReadMemory(nAddress, buffer, nReadSize);
+    std::string pResult = buffer;
+    delete [] buffer;
     return pResult;
 }
 
