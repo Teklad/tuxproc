@@ -17,7 +17,7 @@ Process::Process(uint32_t nProcessID)
     m_nProcessID = nProcessID;
 }
 
-uint32_t Process::Attach(const char* szProcessName)
+pid_t Process::Attach(const char* szProcessName)
 {
     m_nProcessID = 0;
     DIR* pDirectory = opendir("/proc");
@@ -49,15 +49,16 @@ uint32_t Process::Attach(const char* szProcessName)
     return m_nProcessID;
 }
 
-uint32_t Process::GetPID()
+pid_t Process::Attach(const std::string& szProcessName)
+{
+    return Attach(szProcessName.c_str());
+}
+
+pid_t Process::GetPID()
 {
     return m_nProcessID;
 }
 
-uint32_t Process::Attach(const std::string& szProcessName)
-{
-    return Attach(szProcessName.c_str());
-}
 
 bool Process::IsRunning()
 {

@@ -3,7 +3,6 @@
 #include "region.h"
 
 #include <vector>
-
 #include <sys/uio.h>
 
 namespace TuxProc {
@@ -26,15 +25,15 @@ class Process {
          *
          * @return PID of the process, or 0 if none was found
          */
-        uint32_t Attach(const std::string& szProcessName);
-        uint32_t Attach(const char* szProcessName);
+        pid_t Attach(const std::string& szProcessName);
+        pid_t Attach(const char* szProcessName);
         
         /**
          * @brief Gets the current process ID
          *
          * @return PID
          */
-        uint32_t GetPID();
+        pid_t GetPID();
         /**
          * @brief Checks to see if the currently "attached" process is running.
          *
@@ -161,7 +160,7 @@ class Process {
 
     private:
         size_t HexToBinary(const std::string& szPattern, uint8_t* pByte, uint8_t* pMask);
-        uint32_t m_nProcessID;
+        pid_t m_nProcessID;
         Region* m_pLastRegion = nullptr;
         std::vector<uint8_t> m_pReadBuffer;
         std::vector<Region> m_regions;
