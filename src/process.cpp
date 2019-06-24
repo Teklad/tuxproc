@@ -2,199 +2,234 @@
 
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
+#include <cmath>
 
 #include <sys/stat.h>
 #include <dirent.h>
 #include <libgen.h>
 #include <signal.h>
 #include <unistd.h>
+#include <ctype.h>
+#include <errno.h>
+
 
 namespace TuxProc {
 
-Process::Process(uint32_t nProcessID)
+const char unknownDescriptor[] = "[dynamic]";
+
+Process::Process(uint32_t _processID)
 {
-    m_regions.reserve(100);
-    m_nProcessID = nProcessID;
+    regions.reserve(100);
+    processID = _processID;
 }
 
-pid_t Process::Attach(const char* szProcessName)
+pid_t Process::attach(const char* processName)
 {
-    m_nProcessID = 0;
-    DIR* pDirectory = opendir("/proc");
-    if (!pDirectory) {
-        return m_nProcessID;
+    // ** search processes for one with processName by inspecting each /proc/<uid>/exe path
+
+    // open proc directory
+    processID = 0;
+    DIR* procDirectory = opendir("/proc");
+    if (!procDirectory) {
+        return processID;
     }
-    char* pError;
-    struct dirent* pEntry;
-    while ((pEntry = readdir(pDirectory))) {
-        uint32_t id = strtol(pEntry->d_name, &pError, 10);
-        if (id == 0 || *pError != 0) {
+
+    // parse directory files
+    char* error;
+    struct dirent* entry;
+    while ((entry = readdir(procDirectory))) {
+        // name of file is the pid
+        uint32_t id = strtol(entry->d_name, &error, 10);
+        if (id == 0 || *error != 0) {
             continue;
         }
-        char szSymbolicPath[128];
-        char szAbsolutePath[FILENAME_MAX];
+        char symbolicPath[128];
+        char truePath[FILENAME_MAX];
 
-        snprintf(szSymbolicPath, sizeof(szSymbolicPath), "/proc/%u/exe", id);
-        ssize_t nBytesRead = readlink(szSymbolicPath, szAbsolutePath, sizeof(szAbsolutePath));
-        if (nBytesRead > 0) {
-            szAbsolutePath[nBytesRead] = 0;
-            const char* szFileName = basename(szAbsolutePath);
-            if (!strcmp(szFileName, szProcessName)) {
-                m_nProcessID = id;
+        // resolve path of exe symlink
+        snprintf(symbolicPath, sizeof(symbolicPath), "/proc/%u/exe", id);
+        size_t pathLength = readlink(symbolicPath, truePath, sizeof(truePath));
+        if (pathLength > 0) {
+            truePath[pathLength] = 0;
+            // check if executable name matches supplied processName
+            const char* szFileName = basename(truePath);
+            if (strcmp(szFileName, processName) == 0) {
+                processID = id;
                 break;
             }
         }
     }
-    closedir(pDirectory);
-    return m_nProcessID;
+    closedir(procDirectory);
+    return processID;
 }
 
-pid_t Process::Attach(const std::string& szProcessName)
+pid_t Process::getPID()
 {
-    return Attach(szProcessName.c_str());
-}
-
-pid_t Process::GetPID()
-{
-    return m_nProcessID;
+    return processID;
 }
 
 
-bool Process::IsRunning()
+bool Process::isRunning()
 {
-    kill(m_nProcessID, 0);
+    kill(processID, 0); // sig 0 => nothing sent, but error checking is performed
     return (errno != ESRCH);
 }
 
-uint32_t Process::ParseMaps()
+uint32_t Process::parseMaps()
 {
-    m_regions.clear();
-    char szMapsFile[128];
-    snprintf(szMapsFile, sizeof(szMapsFile), "/proc/%u/maps", m_nProcessID);
+    // create maps file path
+    regions.clear();
+    char mapsFilePath[128];
+    snprintf(mapsFilePath, sizeof(mapsFilePath), "/proc/%u/maps", processID);
 
-    FILE* pMapsFile = fopen(szMapsFile, "r");
-    if (!pMapsFile) {
+    // open file
+    FILE* mapsFile = fopen(mapsFilePath, "r");
+    if (!mapsFile) {
         fprintf(stderr, "ParseMaps: Failed to open maps file\n");
         return 0;
     }
 
-    char szLine[1024];
-    while (fgets(szLine, sizeof(szLine), pMapsFile)) {
-        int m = -1;
-        uintptr_t nStart;
-        uintptr_t nEnd;
+    // read line by line
+    char line[1024];
+    while (fgets(line, sizeof(line), mapsFile)) {
+        uintptr_t regionStart;
+        uintptr_t regionEnd;
+        char modestr[5];
+        int inode;
+        int pathstrOffset = -1;
 
-        int result = sscanf(szLine, "%lx-%lx %*4s %*x %*x:%*x %*u %n",
-                &nStart, &nEnd, &m);
+        // scan line for information
+        int scanned = sscanf(line, "%lx-%lx %4s %*x %*x:%*x %u %n",
+                &regionStart, &regionEnd, modestr, &inode, &pathstrOffset);
 
-        if (result != 2 || m < 0 || szLine[m] != '/') {
+        if (scanned < 4) {
             continue;
         }
 
-        szLine[strcspn(szLine, "\n")] = 0;
-        if (m_regions.empty() || m_regions.back().GetAbsolutePath().compare(&szLine[m])) {
-            m_regions.push_back(Region(&szLine[m], nStart, nEnd));
-        } else {
-            m_regions.back().m_nEndAddress = nEnd;
+        // convert modestr to bitmask r = 1, w = 2, x = 4, p = 8
+        uint8_t mode = 0;
+        for (int i = 0; i < 4; i++) {
+            if (modestr[i] != '-') {
+                mode += std::pow(2, i);
+            }
         }
+
+        // check if region was mapped from file
+        char* regionDescriptor = (inode == 0) ? (char*) unknownDescriptor : line + pathstrOffset;
+
+        line[strcspn(line, "\n")] = 0;
+
+        regions.push_back(Region(regionDescriptor, mode, regionStart, regionEnd));
     }
-    fclose(pMapsFile);
-    return m_regions.size();
+    fclose(mapsFile);
+    return regions.size();
 }
 
-Region* Process::GetRegion(const std::string& szRegionName)
+Region* Process::getRegion(const char* regionName, int index, uint8_t filter)
 {
-    for (Region& region : m_regions) {
-        if (!szRegionName.compare(region.GetFileName())) {
-                return &region;
+    int counter = 0;
+    for (Region& region : regions) {
+        if (((filter & region.getMode()) == filter) && (strcmp(regionName, region.getFileName()) == 0)) {
+            if (counter == index) return &region;
+            else counter++;
         }
     }
     return nullptr;
 }
 
-size_t Process::HexToBinary(const std::string& szPattern, uint8_t* pByte, uint8_t* pMask)
+size_t Process::convertHex2Bin(const char* pattern, uint8_t* hexBytes, uint8_t* patternMask)
 {
-    size_t nTotalBytes = 0;
-    size_t nPatternSize = szPattern.size();
-    for (size_t i = 0; i < nPatternSize; ++i) {
-        if (isxdigit(szPattern[i]) && isxdigit(szPattern[i + 1])) {
-            sscanf(szPattern.c_str() + i, "%2x", reinterpret_cast<unsigned int*>(&pByte[nTotalBytes]));
-            pMask[nTotalBytes] = true;
+    // hexBytes and patternMask must be initialized beforehand and must be atleast the size of the amount of hex bytes in the pattern
+    size_t byteCounter = 0;
+    size_t patternLength = strlen(pattern);
+    for (size_t i = 0; i < patternLength; ++i) {
+        if (isxdigit(pattern[i]) && isxdigit(pattern[i + 1])) {
+            sscanf(pattern + i, "%2x", reinterpret_cast<unsigned int*>(&hexBytes[byteCounter]));
+            patternMask[byteCounter] = true;
             i++;
-        } else if (szPattern[i] == '?') {
-            pMask[nTotalBytes] = false;
-        } else if (szPattern[i] == ' ') {
+        } else if (pattern[i] == '?') {
+            patternMask[byteCounter] = false;
+        } else if (pattern[i] == ' ') {
             continue;
         } else {
-            int nErrorPos = szPattern.size() + 9;
-            fprintf(stderr, "FindPattern: Invalid hex detected\nPattern: %s\n",
-                    szPattern.c_str());
-            fprintf(stderr, "%*s\n", nErrorPos, "^");
+            int errorPos = patternLength + 9;
+            fprintf(stderr, "findPattern: Invalid hex detected\nPattern: %s\n",
+                    pattern);
+            fprintf(stderr, "%*s\n", errorPos, "^");
             return 0;
         }
-        ++nTotalBytes;
+        ++byteCounter;
     }
-    return nTotalBytes;
+    // return amount of bytes parsed
+    return byteCounter;
 }
 
-uintptr_t Process::FindPattern(Region* region, const std::string& szPattern, int nOffset)
+uintptr_t Process::findPattern(Region* region, const char* pattern, bool reload)
 {
-    if (!region) {
+    if (region == nullptr) {
         return 0;
     }
 
-    uint8_t byte[64], mask[64];
-    size_t  nHexCount = HexToBinary(szPattern, byte, mask);
-    if (!nHexCount) {
+    uint8_t hexBytes[64], patternMask[64];
+    size_t  bytesParsed = convertHex2Bin(pattern, hexBytes, patternMask);
+    if (bytesParsed == 0) {
         return 0;
     }
 
-    uintptr_t nRegionSize = region->GetSize();
-    if (m_pReadBuffer.size() < nRegionSize) {
-        m_pReadBuffer.resize(nRegionSize);
+    uintptr_t regionSize = region->getSize();
+    if (readBuffer.size() < regionSize) {
+        readBuffer.resize(regionSize);
     }
 
-    uintptr_t nRegionStart = region->GetStartAddress();
+    uintptr_t regionStart = region->getRegionStart();
 
-    ssize_t nReadSize = region->GetSize();
+    ssize_t readSize = regionSize;
 
-    if (m_pLastRegion != region) {
-        nReadSize = ReadMemory(nRegionStart, m_pReadBuffer.data(), nRegionSize);
-        m_pLastRegion = region;
+    // only reload buffer if specified or new region being read
+    if (reload || lastRegionRead != region) {
+        readSize = readMemory(regionStart, readBuffer.data(), regionSize);
+        lastRegionRead = region;
     }
 
-    for (ssize_t i = 0; i < nReadSize; ++i) {
-        bool found = true;
-        for (size_t match = 0; match < nHexCount; ++match) {
-            found = (!mask[match]) || byte[match] == m_pReadBuffer[match + i];
-            if (!found) {
-                break;
-            }
-        }
-        if (found) {
-            return nRegionStart + i + nOffset;
-        }
+    // pattern scan
+    size_t patternIndex = 0;
+    for (ssize_t i = 0; i < readSize; ++i) {
+        if (readBuffer[i] == hexBytes[patternIndex] || !patternMask[patternIndex]) patternIndex++;
+        else patternIndex = 0;
+
+        if (patternIndex == bytesParsed) return regionStart + i - patternIndex + 1;
     }
+
     return 0;
 }
 
-uintptr_t Process::FindPattern(const std::string& szRegionName, const std::string& szPattern, int nOffset)
+ssize_t Process::readMemory(uintptr_t address, void* result, size_t size)
 {
-    return FindPattern(GetRegion(szRegionName), szPattern, nOffset);
+    struct iovec local = {result, size};
+    struct iovec remote = {reinterpret_cast<void*>(address), size};
+    return process_vm_readv(processID, &local, 1, &remote, 1, 0);
 }
 
-uintptr_t Process::GetAbsoluteAddress(uintptr_t nAddress, uint32_t nOffset, uint32_t nExtra)
+ssize_t Process::writeMemory(uintptr_t address, void* value, size_t size)
 {
-    uint32_t nCode = 0;
-    if (ReadMemory(nAddress + nOffset, &nCode, sizeof(nCode)) > 0) {
-        return nAddress + nCode + nExtra;
-    }
-    return 0;
+    struct iovec local = {value, size};
+    struct iovec remote = {reinterpret_cast<void*>(address), size};
+    return process_vm_writev(processID, &local, 1, &remote, 1, 0);
 }
 
-uintptr_t Process::GetCallAddress(uintptr_t nAddress)
+template<typename T>
+T Process::read(uintptr_t address, size_t size)
 {
-    return GetAbsoluteAddress(nAddress, 1, 5);
+    T result;
+    readMemory(address, &result, size);
+    return result;
+}
+
+template<typename T>
+bool Process::write(uintptr_t address, T value, size_t size)
+{
+    return writeMemory(address, &value, size) > 0;
 }
 
 }

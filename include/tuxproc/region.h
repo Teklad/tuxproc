@@ -1,17 +1,23 @@
 #ifndef  __TUXPROC_REGION_H__
 #define  __TUXPROC_REGION_H__
+
 #include <cstdint>
-#include <string>
+#include <cstdio>
+#include <cstring>
 
 namespace TuxProc {
+
+const uint8_t READ = 1;
+const uint8_t WRITE = 2;
+const uint8_t EXEC = 4;
+const uint8_t PRIVATE = 8;
 
 /**
  * @brief Class which holds information about a memory region.
  */
 class Region {
-    friend class Process;
     public:
-        Region(std::string szPath, uintptr_t start, uintptr_t end);
+        Region(char* filePath, uint8_t mode, uintptr_t start, uintptr_t end);
         Region(const Region&) = delete;
         Region& operator=(const Region&) = delete;
         Region(Region&&) = default;
@@ -22,38 +28,28 @@ class Region {
          *
          * @return absolute file path for the region
          */
-        inline const std::string& GetAbsolutePath() const;
-        inline std::string& GetAbsolutePath();
+        char* getFilePath();
 
         /**
          * @brief Retrieves the file name of the region
          *
          * @return file name of the region
          */
-        inline const std::string& GetFileName() const;
-        inline std::string& GetFileName();
+        char* getFileName();
 
         /**
          * @brief Retrieves the address at which the region's memory ends
          *
          * @return end address of the region
          */
-        inline uintptr_t GetEndAddress() const;
+        uintptr_t getRegionEnd();
 
         /**
          * @brief Retrieves the address at which the region's memory starts
          *
          * @return start address of the region
          */
-        inline uintptr_t GetStartAddress() const;
-
-        /**
-         * @brief (Currently unimplemented) Retrieves the text address
-         *        of the region's ELF-formatted file.
-         *
-         * @return .text address of the region file
-         */
-        inline uintptr_t GetTextAddress() const;
+        uintptr_t getRegionStart();
 
         /**
          * @brief Retrieves the total size of the region.  This is the same as
@@ -61,54 +57,23 @@ class Region {
          *
          * @return total size of the region's memory
          */
-        inline uintptr_t GetSize() const;
+        uintptr_t getSize();
+
+        /**
+         * @brief Retrieves the bitmask mode of the region [rwxp].
+         *
+         * @return mode byte
+         */
+        uint8_t getMode();
+
+
     private:
-        std::string m_szAbsolutePath;
-        std::string m_szFileName;
-        uintptr_t m_nEndAddress;
-        uintptr_t m_nStartAddress;
-        uintptr_t m_nTextAddress; //Unimplemented
+        char filePath[200];
+        int fileNameOffset; // offset in filePath
+        uint8_t mode;
+        uintptr_t regionEnd;
+        uintptr_t regionStart;
 };
-
-inline const std::string& Region::GetAbsolutePath() const
-{
-    return m_szAbsolutePath;
-}
-
-inline std::string& Region::GetAbsolutePath()
-{
-    return m_szAbsolutePath;
-}
-
-inline const std::string& Region::GetFileName() const
-{
-    return m_szFileName;
-}
-
-inline std::string& Region::GetFileName()
-{
-    return m_szFileName;
-}
-
-inline uintptr_t Region::GetEndAddress() const
-{
-    return m_nEndAddress;
-}
-
-inline uintptr_t Region::GetStartAddress() const
-{
-    return m_nStartAddress;
-}
-
-inline uintptr_t Region::GetTextAddress() const
-{
-    return m_nTextAddress;
-}
-
-inline uintptr_t Region::GetSize() const
-{
-    return m_nEndAddress - m_nStartAddress;
-}
 
 }
 

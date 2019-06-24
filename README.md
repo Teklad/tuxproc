@@ -1,34 +1,55 @@
 # tuxproc
 An external process memory library for Linux
 
+### Disclaimer
+
+This repository was forked and as such the [original documentation](https://teklad.github.io/tuxproc/class_tux_proc_1_1_process.html) is likely outdated, please refer to the commented code for reference.
+
 ### Description
-This library is designed to make use of process_vm_readv and process_vm_writev easier when working with external process memory
+This library is designed to make use of `process_vm_readv` and `process_vm_writev` easier when working with external process memory
 on Linux.
 
-Documentation can be found [here](https://teklad.github.io/tuxproc/class_tux_proc_1_1_process.html)
+### Building
+
+Build commands in repository root:
+
+```
+mkdir build
+cd build
+cmake ..
+make && sudo make install
+```
+
+To run a program linked with the library, you must add `/usr/local/lib` to `LD_LIBRARY_PATH`
+
+### Demo Program
+
+Navigate to the `demo` directory in the repository root and read the `README` for more information on how to run a small demo program, in which the value of a variable in a remote process is modified.
 
 ### Usage example
 
-The simple usage example to get started with using this library can be found below.
-
 ```cpp
-#include <tuxproc/process.h>
-#include <iostream>
+#include <cstdio>
 #include <unistd.h>
+#include <tuxproc/process.h>
+
+uintptr_t address = "0x123456";
 
 int main()
 {
     TuxProc::Process process;
-    while (!process.Attach("some_process_name")) {
+    while (!process.attach("process_name") || !process.isRunning()) {
         usleep(10000);
     }
-    
-    while (!process.GetRegion("some_required_region.so")) {
-        process.ParseMaps();
-        usleep(10000);
+
+    process.parseMaps();
+
+    // first region of mapped file, that has read access
+    TuxProc::Region* region = process.getRegion("target_file.so", 0, TuxProc::READ);
+
+    if (region) {
+        auto someInt = process.read<int>(address);
+        printf("%d\n", someInt);
     }
-    
-    auto someInt = process.Read<int>(someAddress);
-    std::cout << someInt << '\n';
 }
 ```
