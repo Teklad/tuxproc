@@ -1,13 +1,12 @@
 # tuxproc
 An external process memory library for Linux
 
-### Disclaimer
-
-This repository was forked and as such the [original documentation](https://teklad.github.io/tuxproc/class_tux_proc_1_1_process.html) is likely outdated, please refer to the commented code for reference.
-
 ### Description
+
 This library is designed to make use of `process_vm_readv` and `process_vm_writev` easier when working with external process memory
 on Linux.
+
+Please refer to the commented code for reference.
 
 ### Building
 
